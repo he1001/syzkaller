@@ -5,6 +5,7 @@ package prog
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Syscall struct {
@@ -15,6 +16,9 @@ type Syscall struct {
 	MissingArgs int // number of trailing args that should be zero-filled
 	Args        []Type
 	Ret         Type
+
+	inputResources  []*ResourceDesc
+	outputResources []*ResourceDesc
 }
 
 type Dir int
@@ -52,6 +56,7 @@ type Type interface {
 	String() string
 	Name() string
 	FieldName() string
+	TemplateName() string // for template structs name without arguments
 	Dir() Dir
 	Optional() bool
 	Varlen() bool
@@ -60,7 +65,12 @@ type Type interface {
 	Format() BinaryFormat
 	BitfieldOffset() uint64
 	BitfieldLength() uint64
-	BitfieldMiddle() bool // returns true for all but last bitfield in a group
+	IsBitfield() bool
+	// For most of the types UnitSize is equal to Size.
+	// These are different only for all but last bitfield in the group,
+	// where Size == 0 and UnitSize equals to the underlying bitfield type size.
+	UnitSize() uint64
+	UnitOffset() uint64
 
 	DefaultArg() Arg
 	isDefaultArg(arg Arg) bool
@@ -78,9 +88,10 @@ func IsPad(t Type) bool {
 }
 
 type TypeCommon struct {
-	TypeName   string
-	FldName    string // for struct fields and named args
-	TypeSize   uint64 // static size of the type, or 0 for variable size types
+	TypeName string
+	FldName  string // for struct fields and named args
+	// Static size of the type, or 0 for variable size types and all but last bitfields in the group.
+	TypeSize   uint64
 	ArgDir     Dir
 	IsOptional bool
 	IsVarlen   bool
@@ -92,6 +103,14 @@ func (t *TypeCommon) Name() string {
 
 func (t *TypeCommon) FieldName() string {
 	return t.FldName
+}
+
+func (t *TypeCommon) TemplateName() string {
+	name := t.TypeName
+	if pos := strings.IndexByte(name, '['); pos != -1 {
+		name = name[:pos]
+	}
+	return name
 }
 
 func (t *TypeCommon) Optional() bool {
@@ -125,7 +144,15 @@ func (t *TypeCommon) BitfieldLength() uint64 {
 	return 0
 }
 
-func (t *TypeCommon) BitfieldMiddle() bool {
+func (t *TypeCommon) UnitSize() uint64 {
+	return t.Size()
+}
+
+func (t *TypeCommon) UnitOffset() uint64 {
+	return 0
+}
+
+func (t *TypeCommon) IsBitfield() bool {
 	return false
 }
 
@@ -180,10 +207,11 @@ func (t *ResourceType) Format() BinaryFormat {
 
 type IntTypeCommon struct {
 	TypeCommon
-	ArgFormat   BinaryFormat
-	BitfieldOff uint64
-	BitfieldLen uint64
-	BitfieldMdl bool
+	ArgFormat       BinaryFormat
+	BitfieldOff     uint64
+	BitfieldLen     uint64
+	BitfieldUnit    uint64
+	BitfieldUnitOff uint64
 }
 
 func (t *IntTypeCommon) String() string {
@@ -215,8 +243,19 @@ func (t *IntTypeCommon) BitfieldLength() uint64 {
 	return t.BitfieldLen
 }
 
-func (t *IntTypeCommon) BitfieldMiddle() bool {
-	return t.BitfieldMdl
+func (t *IntTypeCommon) UnitSize() uint64 {
+	if t.BitfieldLen != 0 {
+		return t.BitfieldUnit
+	}
+	return t.Size()
+}
+
+func (t *IntTypeCommon) UnitOffset() uint64 {
+	return t.BitfieldUnitOff
+}
+
+func (t *IntTypeCommon) IsBitfield() bool {
+	return t.BitfieldLen != 0
 }
 
 type ConstType struct {

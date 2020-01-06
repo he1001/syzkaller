@@ -74,6 +74,8 @@ sockaddr [
 	xdp		sockaddr_xdp
 	tipc		sockaddr_tipc
 	isdn		sockaddr_mISDN
+	l2tp		sockaddr_l2tpip
+	phonet		sockaddr_pn
 	ethernet	sockaddr_ethernet
 	generic		sockaddr_generic
 ] [size[SOCKADDR_SIZE]]
@@ -94,6 +96,8 @@ sockaddr_storage [
 	pppol2tpv3	sockaddr_pppol2tpv3
 	pppol2tpv3in6	sockaddr_pppol2tpv3in6
 	pptp		sockaddr_pptp
+	l2tp		sockaddr_l2tpip
+	l2tp6		sockaddr_l2tpip6
 	llc		sockaddr_llc
 	can		sockaddr_can
 	sco		sockaddr_sco
@@ -109,6 +113,7 @@ sockaddr_storage [
 	caif		sockaddr_caif
 	isdn		sockaddr_mISDN
 	rxrpc		sockaddr_rxrpc
+	phonet		sockaddr_pn
 	ethernet	sockaddr_ethernet
 	generic		sockaddr_storage_generic
 ] [size[SOCKADDR_STORAGE_SIZE]]
@@ -277,7 +282,7 @@ ifreq_ioctls = SIOCGIFNAME, SIOCSIFLINK, SIOCGIFFLAGS, SIOCSIFFLAGS, SIOCGIFADDR
 
 ioctl$sock_ifreq(fd sock, cmd flags[ifreq_ioctls], arg ptr[inout, ifreq])
 
-ioctl$sock_SIOCGIFINDEX(fd sock, cmd const[SIOCGIFINDEX], arg ptr[inout, ifreq_t[ifindex]])
+ioctl$sock_SIOCGIFINDEX(fd sock, cmd const[SIOCGIFINDEX], arg ptr[inout, ifreq_t[ifindex[opt]]])
 
 ioctl$sock_SIOCGIFBR(fd sock, cmd const[SIOCGIFBR], arg ptr[inout, brctl_arg])
 ioctl$sock_SIOCSIFBR(fd sock, cmd const[SIOCSIFBR], arg ptr[inout, brctl_arg])
@@ -377,7 +382,7 @@ rtentry {
 # Note: lapb0, bpq0 and hwsim0 are only present in init namespace.
 # Note: for roseN and nrN we should use proc type, but for simplicity we currently use N=0.
 # Note: netdevsim0 and netpci0 are renamed in initialize_devlink_ports()
-devnames = "", "lo", "tunl0", "gre0", "gretap0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0", "ip6gretap0", "bond0", "dummy0", "eql", "ifb0", "ipddp0", "yam0", "bcsf0", "bcsh0", "teql0", "nr0", "rose0", "irlan0", "erspan0", "bpq0", "vlan0", "bridge0", "vcan0", "team0", "syz_tun", "veth0", "veth1", "veth0_to_bridge", "veth1_to_bridge", "veth0_to_bond", "veth1_to_bond", "veth0_to_team", "veth1_to_team", "bridge_slave_0", "bridge_slave_1", "bond_slave_0", "bond_slave_1", "team_slave_0", "team_slave_1", "syzkaller0", "syzkaller1", "lapb0", "hwsim0", "rose0", "nr0", "veth0_to_hsr", "veth1_to_hsr", "hsr0", "ip6erspan0", "nlmon0", "vxcan1", "caif0", "batadv0", "netdevsim0", "netpci0"
+devnames = "", "lo", "tunl0", "gre0", "gretap0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0", "ip6gretap0", "bond0", "dummy0", "nr0", "rose0", "erspan0", "vlan0", "bridge0", "vcan0", "team0", "syz_tun", "veth0", "veth1", "veth0_to_bridge", "veth1_to_bridge", "veth0_to_bond", "veth1_to_bond", "veth0_to_team", "veth1_to_team", "bridge_slave_0", "bridge_slave_1", "bond_slave_0", "bond_slave_1", "team_slave_0", "team_slave_1", "syzkaller0", "syzkaller1", "veth0_to_hsr", "veth1_to_hsr", "hsr0", "ip6erspan0", "vxcan1", "caif0", "batadv0", "netdevsim0", "netpci0", "xfrm0", "veth0_virt_wifi", "veth1_virt_wifi", "virt_wifi0", "veth0_vlan", "veth1_vlan", "vlan0", "vlan1", "macvlan0", "macvlan1", "ipvlan0", "ipvlan1"
 
 type devname string[devnames, IFNAMSIZ]
 
@@ -616,7 +621,7 @@ ethtool_modinfo {
 	cmd		const[ETHTOOL_GMODULEINFO, int32]
 	type		int32
 	eeprom_len	int32
-	reserved	array[int8, 8]
+	reserved	array[const[0, int32], 8]
 }
 
 ethtool_coalesce_cmd_flags = ETHTOOL_GCOALESCE, ETHTOOL_SCOALESCE

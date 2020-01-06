@@ -171,12 +171,20 @@ var openbsdOopses = append([]*oops{
 				fmt:   "pool: free list modified: %[1]v",
 			},
 			{
+				title: compile("panic: pool_p_free: ([^:]+) free list modified"),
+				fmt:   "pool: free list modified: %[1]v",
+			},
+			{
 				title: compile("panic: timeout_add: to_ticks \\(.+\\) < 0"),
 				fmt:   "panic: timeout_add: to_ticks < 0",
 			},
 			{
 				title: compile("panic: attempt to execute user address {{ADDR}} in supervisor mode"),
 				fmt:   "panic: attempt to execute user address",
+			},
+			{
+				title: compile("panic: unhandled af"),
+				fmt:   "panic: unhandled af",
 			},
 		},
 		[]*regexp.Regexp{},

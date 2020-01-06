@@ -57,7 +57,7 @@ netlink_msg_route_sched [
 
 type tcmsg[FAMILY] {
 	family		const[FAMILY, int8]
-	tcm__pad1	const[0, int16]
+	tcm__pad1	const[0, int8]
 	tcm__pad2	const[0, int16]
 	ifindex		ifindex
 	tcm_handle	tcm_handle
@@ -470,6 +470,8 @@ tc_netem_slot {
 	max_delay	int64
 	max_packets	int32
 	max_bytes	int32
+	dist_delay	int64
+	dist_jitter	int64
 }
 
 tc_netem_gimodel {
@@ -489,8 +491,10 @@ tc_netem_gemodel {
 
 tc_prio_qopt {
 	bands	int32
-	priomap	array[int8, TC_PRIO_MAX]
+	priomap	array[int8, TC_PRIO_MAX1]
 }
+
+define TC_PRIO_MAX1	TC_PRIO_MAX + 1
 
 tc_plug_qopt {
 	action	flags[tc_plug_actions, int32]
@@ -520,6 +524,7 @@ tc_sfq_qopt_v1 {
 	Plog		int8[0:32]
 	Scell_log	int8[0:32]
 	flag		int8[0:8]
+	max_P		int32
 	stats		tc_sfqred_stats
 }
 
@@ -540,13 +545,13 @@ tc_sfqred_stats {
 	forced_mark_head	int32
 }
 
-tc_tbf_qopt [
+tc_tbf_qopt {
 	rate		tc_ratespec
 	peakrate	tc_ratespec
 	limit		int32
 	buffer		int32
 	mtu		int32[0:9000]
-]
+}
 
 # ------------------------------ tc class ------------------------------
 tclass_kind_options [
@@ -1254,21 +1259,25 @@ tcf_ematch_tree_hdr {
 }
 
 tca_ematch_tree_list [
-	TCF_EM_CONTAINER	nlattr_t[int32, tcf_ematch_hdr[TCF_EM_CONTAINER, array[int8]]]
-	TCF_EM_CMP		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_CMP, tcf_em_cmp]]
-	TCF_EM_NBYTE		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_NBYTE, tcf_em_nbyte]]
-	TCF_EM_U32		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_U32, tc_u32_key]]
-	TCF_EM_META		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_META, array[tcf_em_meta_policy]]]
-	TCF_EM_CANID		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_CANID, can_filter]]
-	TCF_EM_IPSET		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_IPSET, xt_set_info]]
-	TCF_EM_IPT		nlattr_t[int32, tcf_ematch_hdr[TCF_EM_IPT, array[tcf_em_ipt_policy]]]
+	TCF_EM_CONTAINER	nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_CONTAINER, array[int8]]]
+	TCF_EM_CMP		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_CMP, tcf_em_cmp]]
+	TCF_EM_NBYTE		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_NBYTE, tcf_em_nbyte]]
+	TCF_EM_U32		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_U32, tc_u32_key]]
+	TCF_EM_META		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_META, array[tcf_em_meta_policy]]]
+	TCF_EM_CANID		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_CANID, can_filter]]
+	TCF_EM_IPSET		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_IPSET, xt_set_info]]
+	TCF_EM_IPT		nlattr_t[int32, tcf_ematch_hdr_t[TCF_EM_IPT, array[tcf_em_ipt_policy]]]
 ] [varlen]
 
-type tcf_ematch_hdr[KIND, PAYLOAD] {
+type tcf_ematch_hdr[KIND] {
 	matchid	int16
 	kind	const[KIND, int16]
 	flags	int16
 	pad	const[0, int16]
+} [align_4]
+
+type tcf_ematch_hdr_t[KIND, PAYLOAD] {
+	header	tcf_ematch_hdr[KIND]
 	payload	PAYLOAD
 } [align_4]
 

@@ -140,12 +140,8 @@ drm_map {
 drm_client {
 	idx	int32
 	auth	int32
-	pid	pid
-# pid is declared is long
-	pid_pad	const[0, int32]
-	uid	uid
-# uid is declared is long
-	uid_pad	const[0, int32]
+	pid	alignptr[pid]
+	uid	alignptr[uid]
 	magic	intptr
 	iocs	intptr
 }
@@ -275,10 +271,10 @@ drm_gem_flink {
 }
 
 drm_mode_card_res {
-	fbid	ptr[out, array[int32]]
-	crtcid	ptr[out, array[int32]]
-	connid	ptr[out, array[int32]]
-	encid	ptr[out, array[int32]]
+	fbid	ptr64[out, array[int32]]
+	crtcid	ptr64[out, array[int32]]
+	connid	ptr64[out, array[int32]]
+	encid	ptr64[out, array[int32]]
 	nfbid	len[fbid, int32]
 	ncrtcid	len[crtcid, int32]
 	nconnid	len[connid, int32]
@@ -296,19 +292,20 @@ drm_prime_handle {
 }
 
 drm_mode_get_plane_res {
-	ids	ptr[out, array[int32]]
+	ids	ptr64[out, array[int32]]
 	cnt	len[ids, int32]
 }
 
 drm_mode_crtc {
-	connect	ptr[in, array[int32]]
-	cnt	len[connect, int32]
-	crtcid	int32
-	x	int32
-	y	int32
-	gamma	int32
-	valid	int32
-	mode	drm_mode_modeinfo
+	set_connectors_ptr	ptr64[in, array[int32]]
+	count_connectors	len[set_connectors_ptr, int32]
+	crtc_id			int32
+	fb_id			int32
+	x			int32
+	y			int32
+	gamma_size		int32
+	mode_valid		int32
+	mode			drm_mode_modeinfo
 }
 
 drm_mode_modeinfo {

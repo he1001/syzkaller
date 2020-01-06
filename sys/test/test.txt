@@ -14,7 +14,11 @@ test$int(a0 intptr, a1 int8, a2 int16, a3 int32, a4 int64)
 # String types.
 
 test$str0(a ptr[in, string])
+test$str1(a ptr[in, string["foo"]])
+test$str2(a ptr[in, string[fixed_strings]])
 test$blob0(a ptr[in, array[int8]])
+
+fixed_strings = "foo", "bar"
 
 # Opt arguments
 
@@ -541,6 +545,7 @@ test$excessive_args1()
 test$excessive_args2(a1 int8)
 test$excessive_fields1(a1 ptr[in, excessive_fields])
 test$type_confusion1(a1 ptr[in, type_confusion])
+test$out_const(a1 ptr[out, const[1, int32]])
 
 # Bitfields
 
@@ -766,7 +771,7 @@ serialize0_struct {
 	b	string[serialize_strings, 5]
 }
 
-serialize_strings = "aaa", "bbb"
+serialize_strings = "aaa", "bbb", "hash", "HI"
 
 # Unsupported syscalls due to resources.
 

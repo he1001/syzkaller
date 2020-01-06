@@ -170,8 +170,13 @@ func convertStats(stats map[string]uint64, secs uint64) []UIStat {
 func (mgr *Manager) collectSyscallInfo() map[string]*CallCov {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-
+	if mgr.checkResult == nil {
+		return nil
+	}
 	calls := make(map[string]*CallCov)
+	for _, call := range mgr.checkResult.EnabledCalls[mgr.cfg.Sandbox] {
+		calls[mgr.target.Syscalls[call].Name] = new(CallCov)
+	}
 	for _, inp := range mgr.corpus {
 		if calls[inp.Call] == nil {
 			calls[inp.Call] = new(CallCov)
@@ -233,30 +238,24 @@ func (mgr *Manager) httpCorpus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (mgr *Manager) httpCover(w http.ResponseWriter, r *http.Request) {
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
-
-	if mgr.checkResult == nil {
-		http.Error(w, fmt.Sprintf("machine is not checked yet"), http.StatusInternalServerError)
-		return
-	}
-	if mgr.cfg.Cover {
-		mgr.httpCoverCover(w, r)
-	} else {
+	if !mgr.cfg.Cover {
+		mgr.mu.Lock()
+		defer mgr.mu.Unlock()
 		mgr.httpCoverFallback(w, r)
 	}
-}
-
-func (mgr *Manager) httpCoverCover(w http.ResponseWriter, r *http.Request) {
-	if mgr.cfg.KernelObj == "" {
-		http.Error(w, fmt.Sprintf("no kernel_obj in config file"), http.StatusInternalServerError)
-		return
-	}
+	// Note: initCover is executed without mgr.mu because it takes very long time
+	// (but it only reads config and it protected by initCoverOnce).
 	if err := initCover(mgr.cfg.KernelObj, mgr.sysTarget.KernelObject,
 		mgr.cfg.KernelSrc, mgr.cfg.KernelBuildSrc, mgr.cfg.TargetVMArch, mgr.cfg.TargetOS); err != nil {
 		http.Error(w, fmt.Sprintf("failed to generate coverage profile: %v", err), http.StatusInternalServerError)
 		return
 	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	mgr.httpCoverCover(w, r)
+}
+
+func (mgr *Manager) httpCoverCover(w http.ResponseWriter, r *http.Request) {
 	var progs []cover.Prog
 	if sig := r.FormValue("input"); sig != "" {
 		inp := mgr.corpus[sig]
@@ -322,16 +321,10 @@ func (mgr *Manager) httpPrio(w http.ResponseWriter, r *http.Request) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	call := r.FormValue("call")
-	idx := -1
-	for i, c := range mgr.target.Syscalls {
-		if c.CallName == call {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		http.Error(w, fmt.Sprintf("unknown call: %v", call), http.StatusInternalServerError)
+	callName := r.FormValue("call")
+	call := mgr.target.SyscallMap[callName]
+	if call == nil {
+		http.Error(w, fmt.Sprintf("unknown call: %v", callName), http.StatusInternalServerError)
 		return
 	}
 
@@ -346,8 +339,8 @@ func (mgr *Manager) httpPrio(w http.ResponseWriter, r *http.Request) {
 	}
 	prios := mgr.target.CalculatePriorities(corpus)
 
-	data := &UIPrioData{Call: call}
-	for i, p := range prios[idx] {
+	data := &UIPrioData{Call: callName}
+	for i, p := range prios[call.ID] {
 		data.Prios = append(data.Prios, UIPrio{mgr.target.Syscalls[i].Name, p})
 	}
 	sort.Slice(data.Prios, func(i, j int) bool {
@@ -423,14 +416,15 @@ func (mgr *Manager) httpReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (mgr *Manager) httpRawCover(w http.ResponseWriter, r *http.Request) {
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
-
+	// Note: initCover is executed without mgr.mu because it takes very long time
+	// (but it only reads config and it protected by initCoverOnce).
 	if err := initCover(mgr.cfg.KernelObj, mgr.sysTarget.KernelObject, mgr.cfg.KernelSrc,
 		mgr.cfg.KernelBuildSrc, mgr.cfg.TargetArch, mgr.cfg.TargetOS); err != nil {
 		http.Error(w, initCoverError.Error(), http.StatusInternalServerError)
 		return
 	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
 
 	var cov cover.Cover
 	for _, inp := range mgr.corpus {

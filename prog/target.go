@@ -49,6 +49,9 @@ type Target struct {
 	// Used as fallback when string type does not have own dictionary.
 	StringDictionary []string
 
+	// Resources that play auxiliary role, but widely used throughout all syscalls (e.g. pid/uid).
+	AuxResources map[string]bool
+
 	// Additional special invalid pointer values besides NULL to use.
 	SpecialPointers []uint64
 
@@ -132,40 +135,15 @@ func (target *Target) initTarget() {
 		target.ConstMap[c.Name] = c.Value
 	}
 
-	target.resourceMap = make(map[string]*ResourceDesc)
-	for _, res := range target.Resources {
-		target.resourceMap[res.Name] = res
-	}
-
-	keyedStructs := make(map[StructKey]*StructDesc)
-	for _, desc := range target.Structs {
-		keyedStructs[desc.Key] = desc.Desc
-	}
+	target.resourceMap = restoreLinks(target.Syscalls, target.Resources, target.Structs)
 	target.Structs = nil
 
 	target.SyscallMap = make(map[string]*Syscall)
 	for i, c := range target.Syscalls {
 		c.ID = i
 		target.SyscallMap[c.Name] = c
-		ForeachType(c, func(t0 Type) {
-			switch t := t0.(type) {
-			case *ResourceType:
-				t.Desc = target.resourceMap[t.TypeName]
-				if t.Desc == nil {
-					panic("no resource desc")
-				}
-			case *StructType:
-				t.StructDesc = keyedStructs[t.Key]
-				if t.StructDesc == nil {
-					panic("no struct desc")
-				}
-			case *UnionType:
-				t.StructDesc = keyedStructs[t.Key]
-				if t.StructDesc == nil {
-					panic("no union desc")
-				}
-			}
-		})
+		c.inputResources = target.getInputResources(c)
+		c.outputResources = target.getOutputResources(c)
 	}
 
 	target.populateResourceCtors()
@@ -185,6 +163,43 @@ func (target *Target) GetConst(name string) uint64 {
 		panic(fmt.Sprintf("const %v is not defined for %v/%v", name, target.OS, target.Arch))
 	}
 	return v
+}
+
+func RestoreLinks(syscalls []*Syscall, resources []*ResourceDesc, structs []*KeyedStruct) {
+	restoreLinks(syscalls, resources, structs)
+}
+
+func restoreLinks(syscalls []*Syscall, resources []*ResourceDesc, structs []*KeyedStruct) map[string]*ResourceDesc {
+	resourceMap := make(map[string]*ResourceDesc)
+	for _, res := range resources {
+		resourceMap[res.Name] = res
+	}
+	keyedStructs := make(map[StructKey]*StructDesc)
+	for _, desc := range structs {
+		keyedStructs[desc.Key] = desc.Desc
+	}
+	for _, c := range syscalls {
+		ForeachType(c, func(t0 Type) {
+			switch t := t0.(type) {
+			case *ResourceType:
+				t.Desc = resourceMap[t.TypeName]
+				if t.Desc == nil {
+					panic("no resource desc")
+				}
+			case *StructType:
+				t.StructDesc = keyedStructs[t.Key]
+				if t.StructDesc == nil {
+					panic("no struct desc")
+				}
+			case *UnionType:
+				t.StructDesc = keyedStructs[t.Key]
+				if t.StructDesc == nil {
+					panic("no union desc")
+				}
+			}
+		})
+	}
+	return resourceMap
 }
 
 type Gen struct {

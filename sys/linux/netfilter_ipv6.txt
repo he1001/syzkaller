@@ -114,18 +114,18 @@ ip6t_ip6_invflags = IP6T_INV_VIA_IN, IP6T_INV_VIA_OUT, IP6T_INV_TOS, IP6T_INV_SR
 ipt6_matches [
 	unspec		xt_unspec_matches
 	inet		xt_inet_matches
-	icmp6		xt_entry_match["icmp6", ip6t_icmp, 0]
-	rt		xt_entry_match["rt", ip6t_rt, 0]
-	mh		xt_entry_match["mh", ip6t_mh, 0]
-	hbh		xt_entry_match["hbh", ip6t_opts, 0]
-	dst		xt_entry_match["dst", ip6t_opts, 0]
-	frag		xt_entry_match["frag", ip6t_frag, 0]
-	eui64		xt_entry_match["eui64", const[0, int32], 0]
-	ah		xt_entry_match["ah", ip6t_ah, 0]
-	ipv6header	xt_entry_match["ipv6header", ip6t_ipv6header_info, 0]
-	hl		xt_entry_match["hl", ipt_ttl_info, 0]
-	srh		xt_entry_match["srh", ip6t_srh, 0]
-	srh1		xt_entry_match["srh", ip6t_srh1, 1]
+	icmp6		xt_entry_match_t["icmp6", ip6t_icmp, 0]
+	rt		xt_entry_match_t["rt", ip6t_rt, 0]
+	mh		xt_entry_match_t["mh", ip6t_mh, 0]
+	hbh		xt_entry_match_t["hbh", ip6t_opts, 0]
+	dst		xt_entry_match_t["dst", ip6t_opts, 0]
+	frag		xt_entry_match_t["frag", ip6t_frag, 0]
+	eui64		xt_entry_match_t["eui64", const[0, int32], 0]
+	ah		xt_entry_match_t["ah", ip6t_ah, 0]
+	ipv6header	xt_entry_match_t["ipv6header", ip6t_ipv6header_info, 0]
+	hl		xt_entry_match_t["hl", ipt_ttl_info, 0]
+	srh		xt_entry_match_t["srh", ip6t_srh, 0]
+	srh1		xt_entry_match_t["srh", ip6t_srh1, 1]
 ] [varlen]
 
 ip6t_filter_matches [
@@ -152,15 +152,13 @@ ip6t_security_matches [
 
 ip6t_icmp {
 	type		flags[icmp_types, int8]
-	code_min	int8
-	code_max	int8
+	code		array[int8, 2]
 	invflags	bool8
 }
 
 ip6t_rt {
 	rt_type		int32
-	segsleft_min	int32
-	segsleft_max	int32
+	segsleft	array[int32, 2]
 	hdrlen		int32
 	flags		flags[ip6t_rt_flags, int8]
 	invflags	flags[ip6t_rt_invflags, int8]
@@ -172,8 +170,7 @@ ip6t_rt_flags = IP6T_RT_TYP, IP6T_RT_SGS, IP6T_RT_LEN, IP6T_RT_RES, IP6T_RT_FST_
 ip6t_rt_invflags = IP6T_RT_INV_TYP, IP6T_RT_INV_SGS, IP6T_RT_INV_LEN
 
 ip6t_mh {
-	types_min	int8
-	types_max	int8
+	types		array[int8, 2]
 	invflags	bool8
 }
 
@@ -189,8 +186,7 @@ ip6t_opts_flags = IP6T_OPTS_LEN, IP6T_OPTS_OPTS, IP6T_OPTS_NSTRICT
 ip6t_opts_invflags = IP6T_OPTS_INV_LEN
 
 ip6t_frag {
-	ids_min		int32
-	ids_max		int32
+	ids		array[int32, 2]
 	hdrlen		int32
 	flags		flags[ip6t_frag_flags, int8]
 	invflags	flags[ip6t_frag_invflags, int8]
@@ -208,8 +204,7 @@ ip6t_ipv6header_info {
 ip6t_ipv6header_flags = MASK_HOPOPTS, MASK_DSTOPTS, MASK_ROUTING, MASK_FRAGMENT, MASK_AH, MASK_ESP, MASK_NONE, MASK_PROTO
 
 ip6t_ah {
-	spis_min	xfrm_spi
-	spis_max	xfrm_spi
+	spis		array[xfrm_spi, 2]
 	hdrlen		int32
 	hdrres		int8
 	invflags	flags[ip6t_ah_flags, int8]

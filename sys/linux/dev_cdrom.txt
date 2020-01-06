@@ -76,9 +76,7 @@ ioctl$CDROM_SEND_PACKET(fd fd_cdrom, cmd const[CDROM_SEND_PACKET], arg ptr[inout
 ioctl$CDROM_NEXT_WRITABLE(fd fd_cdrom, cmd const[CDROM_NEXT_WRITABLE], arg ptr[out, int64])
 ioctl$CDROM_LAST_WRITTEN(fd fd_cdrom, cmd const[CDROM_LAST_WRITTEN], arg ptr[out, int64])
 
-cdrom_output_buffer {
-	reserved	array[int8, CD_FRAMESIZE_RAWER]
-}
+type cdrom_output_buffer array[int8, CD_FRAMESIZE_RAWER]
 
 cdrom_msf {
 	cdmsf_min0	int8
@@ -322,9 +320,13 @@ cdrom_generic_command {
 }
 
 request_sense {
-	valid_err_code	int8
+	error_code	int8:7
+	valid		int8:1
 	segment_number	int8
-	ili_sense_key	int8
+	sense_key	int8:4
+	reserved2	const[0, int8:1]
+	ili		int8:1
+	reserved1	const[0, int8:2]
 	information	array[int8, 4]
 	add_sense_len	int8
 	command_info	array[int8, 4]

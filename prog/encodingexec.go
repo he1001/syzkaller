@@ -125,6 +125,7 @@ func (w *execContext) writeCopyin(c *Call) {
 			return
 		}
 		addr := w.target.PhysicalAddr(ctx.Base) + ctx.Offset
+		addr -= arg.Type().UnitOffset()
 		if w.willBeUsed(arg) {
 			w.args[arg] = argInfo{Addr: addr}
 		}
@@ -133,7 +134,7 @@ func (w *execContext) writeCopyin(c *Call) {
 			return
 		}
 		typ := arg.Type()
-		if typ.Dir() == DirOut || IsPad(typ) || arg.Size() == 0 {
+		if typ.Dir() == DirOut || IsPad(typ) || (arg.Size() == 0 && !typ.IsBitfield()) {
 			return
 		}
 		w.write(execInstrCopyin)
@@ -236,7 +237,7 @@ func (w *execContext) writeArg(arg Arg) {
 	case *ConstArg:
 		val, pidStride := a.Value()
 		typ := a.Type()
-		w.writeConstArg(a.Size(), val, typ.BitfieldOffset(), typ.BitfieldLength(), pidStride, typ.Format())
+		w.writeConstArg(typ.UnitSize(), val, typ.BitfieldOffset(), typ.BitfieldLength(), pidStride, typ.Format())
 	case *ResultArg:
 		if a.Res == nil {
 			w.writeConstArg(a.Size(), a.Val, 0, 0, 0, a.Type().Format())

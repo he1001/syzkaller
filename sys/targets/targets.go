@@ -22,6 +22,7 @@ type Target struct {
 	PageSize         uint64
 	NumPages         uint64
 	DataOffset       uint64
+	Int64Alignment   uint64
 	CFlags           []string
 	CrossCFlags      []string
 	CCompilerPrefix  string
@@ -49,6 +50,11 @@ type osCommon struct {
 	// Special mode for OSes that do not have support for building Go binaries.
 	// In this mode we run Go binaries on the host machine, only executor runs on target.
 	HostFuzzer bool
+	// How to run syz-executor directly.
+	// Some systems build syz-executor into their images.
+	// If this flag is not empty, syz-executor will not be copied to the machine, and will be run using
+	// this command instead.
+	SyzExecutorCmd string
 	// Extension of executable files (notably, .exe for windows).
 	ExeExtension string
 	// Name of the kernel object file.
@@ -100,10 +106,11 @@ var List = map[string]map[string]*Target{
 			},
 		},
 		"32_shmem": {
-			PtrSize:     4,
-			PageSize:    8 << 10,
-			CFlags:      []string{"-m32"},
-			CrossCFlags: []string{"-m32", "-static"},
+			PtrSize:        4,
+			PageSize:       8 << 10,
+			Int64Alignment: 4,
+			CFlags:         []string{"-m32"},
+			CrossCFlags:    []string{"-m32", "-static"},
 			osCommon: osCommon{
 				SyscallNumbers:         true,
 				SyscallPrefix:          "SYS_",
@@ -145,6 +152,7 @@ var List = map[string]map[string]*Target{
 			VMArch:           "amd64",
 			PtrSize:          4,
 			PageSize:         4 << 10,
+			Int64Alignment:   4,
 			CFlags:           []string{"-m32"},
 			CrossCFlags:      []string{"-m32", "-static"},
 			CCompilerPrefix:  "x86_64-linux-gnu-",
@@ -169,6 +177,16 @@ var List = map[string]map[string]*Target{
 			KernelArch:       "arm",
 			KernelHeaderArch: "arm",
 		},
+		"mips64le": {
+			VMArch:           "mips64le",
+			PtrSize:          8,
+			PageSize:         4 << 10,
+			CFlags:           []string{"-D_MIPS_SZLONG=64", "-D__MIPSEL__", "-D__KERNEL__", "-D_MIPS_SIM=_MIPS_SIM_ABI64"},
+			CrossCFlags:      []string{"-static", "-march=mips64r2", "-mabi=64", "-EL"},
+			CCompilerPrefix:  "mips64el-linux-gnuabi64-",
+			KernelArch:       "mips",
+			KernelHeaderArch: "mips",
+		},
 		"ppc64le": {
 			PtrSize:  8,
 			PageSize: 4 << 10,
@@ -192,10 +210,11 @@ var List = map[string]map[string]*Target{
 			NeedSyscallDefine: dontNeedSyscallDefine,
 		},
 		"386": {
-			VMArch:   "amd64",
-			PtrSize:  4,
-			PageSize: 4 << 10,
-			CFlags:   []string{"-m32"},
+			VMArch:         "amd64",
+			PtrSize:        4,
+			PageSize:       4 << 10,
+			Int64Alignment: 4,
+			CFlags:         []string{"-m32"},
 			// The story behind -B/usr/lib32 is not completely clear, but it helps in some cases.
 			// For context see discussion in https://github.com/google/syzkaller/pull/1202
 			CrossCFlags:       []string{"-m32", "-static", "-B/usr/lib32"},
@@ -252,7 +271,7 @@ var List = map[string]map[string]*Target{
 			PtrSize:          8,
 			PageSize:         4 << 10,
 			KernelHeaderArch: "x64",
-			CCompiler:        os.ExpandEnv("${SOURCEDIR}/prebuilt/third_party/clang/linux-x64/bin/clang++"),
+			CCompiler:        os.ExpandEnv("${SOURCEDIR}/prebuilt/third_party/clang/linux-x64/bin/clang"),
 			CrossCFlags: []string{
 				"-Wno-deprecated",
 				"--target=x86_64-fuchsia",
@@ -267,7 +286,7 @@ var List = map[string]map[string]*Target{
 				"-I", os.ExpandEnv("${SOURCEDIR}/out/x64/fidling/gen/zircon/system/fidl/fuchsia-device-manager"),
 				"-I", os.ExpandEnv("${SOURCEDIR}/out/x64/fidling/gen/zircon/system/fidl/fuchsia-hardware-nand"),
 				"-I", os.ExpandEnv("${SOURCEDIR}/out/x64/fidling/gen/zircon/system/fidl/fuchsia-hardware-usb-peripheral"),
-				"-L", os.ExpandEnv("${SOURCEDIR}/out/x64/gen/zircon/public/lib/driver"),
+				"-L", os.ExpandEnv("${SOURCEDIR}/out/x64/x64-shared"),
 				"-L", os.ExpandEnv("${SOURCEDIR}/out/x64/gen/zircon/public/lib/fdio"),
 			},
 		},
@@ -275,7 +294,7 @@ var List = map[string]map[string]*Target{
 			PtrSize:          8,
 			PageSize:         4 << 10,
 			KernelHeaderArch: "arm64",
-			CCompiler:        os.ExpandEnv("${SOURCEDIR}/prebuilt/third_party/clang/linux-x64/bin/clang++"),
+			CCompiler:        os.ExpandEnv("${SOURCEDIR}/prebuilt/third_party/clang/linux-x64/bin/clang"),
 			CrossCFlags: []string{
 				"-Wno-deprecated",
 				"--target=aarch64-fuchsia",
@@ -290,7 +309,7 @@ var List = map[string]map[string]*Target{
 				"-I", os.ExpandEnv("${SOURCEDIR}/out/arm64/fidling/gen/zircon/system/fidl/fuchsia-device-manager"),
 				"-I", os.ExpandEnv("${SOURCEDIR}/out/arm64/fidling/gen/zircon/system/fidl/fuchsia-hardware-nand"),
 				"-I", os.ExpandEnv("${SOURCEDIR}/out/arm64/fidling/gen/zircon/system/fidl/fuchsia-hardware-usb-peripheral"),
-				"-L", os.ExpandEnv("${SOURCEDIR}/out/arm64/gen/zircon/public/lib/driver"),
+				"-L", os.ExpandEnv("${SOURCEDIR}/out/arm64/arm64-shared"),
 				"-L", os.ExpandEnv("${SOURCEDIR}/out/arm64/gen/zircon/public/lib/fdio"),
 			},
 		},
@@ -361,6 +380,7 @@ var oses = map[string]osCommon{
 		ExecutorUsesShmem:      false,
 		ExecutorUsesForkServer: false,
 		HostFuzzer:             true,
+		SyzExecutorCmd:         "syz-executor",
 		KernelObject:           "zircon.elf",
 	},
 	"windows": {

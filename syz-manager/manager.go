@@ -164,7 +164,7 @@ func RunManager(cfg *mgrconfig.Config, target *prog.Target, sysTarget *targets.T
 		reporter:         reporter,
 		crashdir:         crashdir,
 		startTime:        time.Now(),
-		stats:            new(Stats),
+		stats:            &Stats{haveHub: cfg.HubClient != ""},
 		crashTypes:       make(map[string]bool),
 		enabledSyscalls:  syscalls,
 		corpus:           make(map[string]rpctype.RPCInput),
@@ -504,10 +504,9 @@ func (mgr *Manager) loadCorpus() {
 	// Shuffling should alleviate deterministically losing the same inputs on fuzzer crashing.
 	mgr.candidates = append(mgr.candidates, mgr.candidates...)
 	shuffle := mgr.candidates[len(mgr.candidates)/2:]
-	for i := range shuffle {
-		j := i + rand.Intn(len(shuffle)-i)
+	rand.Shuffle(len(shuffle), func(i, j int) {
 		shuffle[i], shuffle[j] = shuffle[j], shuffle[i]
-	}
+	})
 	if mgr.phase != phaseInit {
 		panic(fmt.Sprintf("loadCorpus: bad phase %v", mgr.phase))
 	}
@@ -526,13 +525,20 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup port forwarding: %v", err)
 	}
+
 	fuzzerBin, err := inst.Copy(mgr.cfg.SyzFuzzerBin)
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy binary: %v", err)
 	}
-	executorBin, err := inst.Copy(mgr.cfg.SyzExecutorBin)
-	if err != nil {
-		return nil, fmt.Errorf("failed to copy binary: %v", err)
+
+	// If SyzExecutorCmd is provided, it means that syz-executor is already in
+	// the image, so no need to copy it.
+	executorCmd := targets.Get(mgr.cfg.TargetOS, mgr.cfg.TargetArch).SyzExecutorCmd
+	if executorCmd == "" {
+		executorCmd, err = inst.Copy(mgr.cfg.SyzExecutorBin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to copy binary: %v", err)
+		}
 	}
 
 	fuzzerV := 0
@@ -546,7 +552,7 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 	start := time.Now()
 	atomic.AddUint32(&mgr.numFuzzing, 1)
 	defer atomic.AddUint32(&mgr.numFuzzing, ^uint32(0))
-	cmd := instance.FuzzerCmd(fuzzerBin, executorBin, fmt.Sprintf("vm-%v", index),
+	cmd := instance.FuzzerCmd(fuzzerBin, executorCmd, fmt.Sprintf("vm-%v", index),
 		mgr.cfg.TargetOS, mgr.cfg.TargetArch, fwdAddr, mgr.cfg.Sandbox, procs, fuzzerV,
 		mgr.cfg.Cover, *flagDebug, false, false)
 	outc, errc, err := inst.Run(time.Hour, mgr.vmStop, cmd)
@@ -869,7 +875,7 @@ func (mgr *Manager) addNewCandidates(progs [][]byte) {
 }
 
 func (mgr *Manager) minimizeCorpus() {
-	if mgr.phase < phaseLoadedCorpus || len(mgr.corpus) <= mgr.lastMinCorpus*101/100 {
+	if mgr.phase < phaseLoadedCorpus || len(mgr.corpus) <= mgr.lastMinCorpus*103/100 {
 		return
 	}
 	inputs := make([]signal.Context, 0, len(mgr.corpus))
@@ -880,6 +886,8 @@ func (mgr *Manager) minimizeCorpus() {
 		})
 	}
 	newCorpus := make(map[string]rpctype.RPCInput)
+	// Note: inputs are unsorted (based on map iteration).
+	// This gives some intentional non-determinism during minimization.
 	for _, ctx := range signal.Minimize(inputs) {
 		inp := ctx.(rpctype.RPCInput)
 		newCorpus[hash.String(inp.Prog)] = inp
@@ -997,6 +1005,12 @@ func (mgr *Manager) candidateBatch(size int) []rpctype.RPCCandidate {
 		}
 	}
 	return res
+}
+
+func (mgr *Manager) rotateCorpus() bool {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	return mgr.phase == phaseTriagedHub
 }
 
 func (mgr *Manager) collectUsedFiles() {

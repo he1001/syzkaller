@@ -20,14 +20,18 @@ function util_add_usb_bits {
 
   git clone --depth=1 https://github.com/ulfalizer/Kconfiglib.git
   wget -qO- https://raw.githubusercontent.com/ulfalizer/Kconfiglib/master/makefile.patch | patch -p1
+
+  configs=""
   for config in ${THIS_DIR}/distros/*; do
-    make ${MAKE_VARS} scriptconfig SCRIPT=${MERGE_USB_SCRIPT} SCRIPT_ARG=${config}
+    configs+="${config},"
   done
+  make ${MAKE_VARS} scriptconfig SCRIPT=${MERGE_USB_SCRIPT} SCRIPT_ARG=${configs}
   git checkout ./scripts/kconfig/Makefile
   rm -rf ./Kconfiglib
 
   scripts/config -d CONFIG_USB_CONFIGFS
   scripts/config -d CONFIG_USB_LIBCOMPOSITE
+  scripts/config -d CONFIG_USB_GADGETFS
 
   scripts/config -d CONFIG_USB_G_NCM
   scripts/config -d CONFIG_USB_G_SERIAL
@@ -40,7 +44,6 @@ function util_add_usb_bits {
   scripts/config -d CONFIG_USB_G_WEBCAM
   
   scripts/config -e CONFIG_USB_GADGET
-  scripts/config -e CONFIG_USB_GADGETFS
   scripts/config -e CONFIG_USB_DUMMY_HCD
   scripts/config -e CONFIG_USB_RAW_GADGET
 

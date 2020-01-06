@@ -1073,7 +1073,7 @@ static void event_set(event_t* ev)
 	if (ev->state)
 		fail("event already set");
 	__atomic_store_n(&ev->state, 1, __ATOMIC_RELEASE);
-	syscall(SYS_futex, &ev->state, FUTEX_WAKE | FUTEX_PRIVATE_FLAG);
+	syscall(SYS_futex, &ev->state, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1000000);
 }
 
 static void event_wait(event_t* ev)
@@ -1306,6 +1306,71 @@ static void netlink_add_hsr(struct nlmsg* nlmsg, int sock, const char* name,
 	int err = netlink_send(nlmsg, sock);
 	debug("netlink: adding device %s type hsr slave1 %s slave2 %s: %s\n",
 	      name, slave1, slave2, strerror(err));
+	(void)err;
+}
+
+static void netlink_add_virt_wifi(struct nlmsg* nlmsg, int sock, const char* name, const char* link)
+{
+	netlink_add_device_impl(nlmsg, "virt_wifi", name);
+	netlink_done(nlmsg);
+	int ifindex = if_nametoindex(link);
+	netlink_attr(nlmsg, IFLA_LINK, &ifindex, sizeof(ifindex));
+	int err = netlink_send(nlmsg, sock);
+	debug("netlink: adding device %s type virt_wifi link %s: %s\n",
+	      name, link, strerror(err));
+	(void)err;
+}
+
+static void netlink_add_vlan(struct nlmsg* nlmsg, int sock, const char* name, const char* link, uint16 id, uint16 proto)
+{
+	netlink_add_device_impl(nlmsg, "vlan", name);
+	netlink_nest(nlmsg, IFLA_INFO_DATA);
+	netlink_attr(nlmsg, IFLA_VLAN_ID, &id, sizeof(id));
+	netlink_attr(nlmsg, IFLA_VLAN_PROTOCOL, &proto, sizeof(proto));
+	netlink_done(nlmsg);
+	netlink_done(nlmsg);
+	int ifindex = if_nametoindex(link);
+	netlink_attr(nlmsg, IFLA_LINK, &ifindex, sizeof(ifindex));
+	int err = netlink_send(nlmsg, sock);
+	debug("netlink: add %s type vlan link %s id %d: %s\n",
+	      name, link, id, strerror(err));
+	(void)err;
+}
+
+static void netlink_add_macvlan(struct nlmsg* nlmsg, int sock, const char* name, const char* link)
+{
+	netlink_add_device_impl(nlmsg, "macvlan", name);
+	netlink_nest(nlmsg, IFLA_INFO_DATA);
+	uint32 mode = MACVLAN_MODE_BRIDGE;
+	netlink_attr(nlmsg, IFLA_MACVLAN_MODE, &mode, sizeof(mode));
+	netlink_done(nlmsg);
+	netlink_done(nlmsg);
+	int ifindex = if_nametoindex(link);
+	netlink_attr(nlmsg, IFLA_LINK, &ifindex, sizeof(ifindex));
+	int err = netlink_send(nlmsg, sock);
+	debug("netlink: add %s type macvlan link %s mode %d: %s\n",
+	      name, link, mode, strerror(err));
+	(void)err;
+}
+
+#define IFLA_IPVLAN_FLAGS 2
+#define IPVLAN_MODE_L3S 2
+#undef IPVLAN_F_VEPA
+#define IPVLAN_F_VEPA 2
+
+static void netlink_add_ipvlan(struct nlmsg* nlmsg, int sock, const char* name, const char* link, uint16 mode, uint16 flags)
+{
+	netlink_add_device_impl(nlmsg, "ipvlan", name);
+	netlink_nest(nlmsg, IFLA_INFO_DATA);
+	netlink_attr(nlmsg, IFLA_IPVLAN_MODE, &mode, sizeof(mode));
+	netlink_attr(nlmsg, IFLA_IPVLAN_FLAGS, &flags, sizeof(flags));
+	netlink_done(nlmsg);
+	netlink_done(nlmsg);
+	int ifindex = if_nametoindex(link);
+	netlink_attr(nlmsg, IFLA_LINK, &ifindex, sizeof(ifindex));
+	int err = netlink_send(nlmsg, sock);
+	debug("netlink: add %s type ipvlan link %s mode %d: %s\n",
+	      name, link, mode, strerror(err));
 	(void)err;
 }
 #endif
@@ -1709,6 +1774,7 @@ static void initialize_netdevices(void)
 	    {"vxcan", "vxcan1"},
 	    {"netdevsim", netdevsim},
 	    {"veth", 0},
+	    {"xfrm", "xfrm0"},
 	};
 	const char* devmasters[] = {"bridge", "bond", "team"};
 	struct {
@@ -1749,6 +1815,18 @@ static void initialize_netdevices(void)
 	    {"caif0", ETH_ALEN},
 	    {"batadv0", ETH_ALEN},
 	    {netdevsim, ETH_ALEN},
+	    {"xfrm0", ETH_ALEN},
+	    {"veth0_virt_wifi", ETH_ALEN},
+	    {"veth1_virt_wifi", ETH_ALEN},
+	    {"virt_wifi0", ETH_ALEN},
+	    {"veth0_vlan", ETH_ALEN},
+	    {"veth1_vlan", ETH_ALEN},
+	    {"vlan0", ETH_ALEN},
+	    {"vlan1", ETH_ALEN},
+	    {"macvlan0", ETH_ALEN},
+	    {"macvlan1", ETH_ALEN},
+	    {"ipvlan0", ETH_ALEN},
+	    {"ipvlan1", ETH_ALEN},
 	};
 	int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (sock == -1)
@@ -1775,6 +1853,17 @@ static void initialize_netdevices(void)
 	netlink_add_hsr(&nlmsg, sock, "hsr0", "hsr_slave_0", "hsr_slave_1");
 	netlink_device_change(&nlmsg, sock, "hsr_slave_0", true, 0, 0, 0, NULL);
 	netlink_device_change(&nlmsg, sock, "hsr_slave_1", true, 0, 0, 0, NULL);
+
+	netlink_add_veth(&nlmsg, sock, "veth0_virt_wifi", "veth1_virt_wifi");
+	netlink_add_virt_wifi(&nlmsg, sock, "virt_wifi0", "veth1_virt_wifi");
+
+	netlink_add_veth(&nlmsg, sock, "veth0_vlan", "veth1_vlan");
+	netlink_add_vlan(&nlmsg, sock, "vlan0", "veth0_vlan", 0, htons(ETH_P_8021Q));
+	netlink_add_vlan(&nlmsg, sock, "vlan1", "veth0_vlan", 1, htons(ETH_P_8021AD));
+	netlink_add_macvlan(&nlmsg, sock, "macvlan0", "veth1_vlan");
+	netlink_add_macvlan(&nlmsg, sock, "macvlan1", "veth1_vlan");
+	netlink_add_ipvlan(&nlmsg, sock, "ipvlan0", "veth0_vlan", IPVLAN_MODE_L2, 0);
+	netlink_add_ipvlan(&nlmsg, sock, "ipvlan1", "veth0_vlan", IPVLAN_MODE_L3S, IPVLAN_F_VEPA);
 
 	netdevsim_add((int)procid, 4);
 
@@ -2073,10 +2162,12 @@ static bool parse_usb_descriptor(char* buffer, size_t length, struct usb_device_
 	return true;
 }
 
+#define UDC_NAME_LENGTH_MAX 128
+
 struct usb_raw_init {
-	__u64 speed;
-	const __u8* driver_name;
-	const __u8* device_name;
+	__u8 driver_name[UDC_NAME_LENGTH_MAX];
+	__u8 device_name[UDC_NAME_LENGTH_MAX];
+	__u8 speed;
 };
 
 enum usb_raw_event_type {
@@ -2118,9 +2209,9 @@ static int usb_raw_open()
 static int usb_raw_init(int fd, uint32 speed, const char* driver, const char* device)
 {
 	struct usb_raw_init arg;
+	strncpy((char*)&arg.driver_name[0], driver, sizeof(arg.driver_name));
+	strncpy((char*)&arg.device_name[0], device, sizeof(arg.device_name));
 	arg.speed = speed;
-	arg.driver_name = (const __u8*)driver;
-	arg.device_name = (const __u8*)device;
 	return ioctl(fd, USB_RAW_IOCTL_INIT, &arg);
 }
 
@@ -3384,15 +3475,13 @@ struct fs_image_segment {
 #define sys_memfd_create 279
 #elif GOARCH_ppc64le
 #define sys_memfd_create 360
-#endif
+#elif GOARCH_mips64le
+#define sys_memfd_create 314
 #endif
 
-#if SYZ_EXECUTOR || __NR_syz_read_part_table
-static long syz_read_part_table(volatile unsigned long size, volatile unsigned long nsegs, volatile long segments)
+static unsigned long fs_image_segment_check(unsigned long size, unsigned long nsegs, long segments)
 {
-	char loopname[64], linkname[64];
-	int loopfd, err = 0, res = -1;
-	unsigned long i, j;
+	unsigned long i;
 	struct fs_image_segment* segs = (struct fs_image_segment*)segments;
 
 	if (nsegs > IMAGE_MAX_SEGMENTS)
@@ -3408,6 +3497,17 @@ static long syz_read_part_table(volatile unsigned long size, volatile unsigned l
 	}
 	if (size > IMAGE_MAX_SIZE)
 		size = IMAGE_MAX_SIZE;
+	return size;
+}
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_read_part_table
+static long syz_read_part_table(volatile unsigned long size, volatile unsigned long nsegs, volatile long segments)
+{
+	char loopname[64], linkname[64];
+	int loopfd, err = 0, res = -1;
+	unsigned long i, j;
+	NONFAILING(size = fs_image_segment_check(size, nsegs, segments));
 	int memfd = syscall(sys_memfd_create, "syz_read_part_table", 0);
 	if (memfd == -1) {
 		err = errno;
@@ -3418,7 +3518,10 @@ static long syz_read_part_table(volatile unsigned long size, volatile unsigned l
 		goto error_close_memfd;
 	}
 	for (i = 0; i < nsegs; i++) {
-		if (pwrite(memfd, segs[i].data, segs[i].size, segs[i].offset) < 0) {
+		struct fs_image_segment* segs = (struct fs_image_segment*)segments;
+		int res1 = 0;
+		NONFAILING(res1 = pwrite(memfd, segs[i].data, segs[i].size, segs[i].offset));
+		if (res1 < 0) {
 			debug("syz_read_part_table: pwrite[%u] failed: %d\n", (int)i, errno);
 		}
 	}
@@ -3484,21 +3587,8 @@ static long syz_mount_image(volatile long fsarg, volatile long dir, volatile uns
 	char loopname[64], fs[32], opts[256];
 	int loopfd, err = 0, res = -1;
 	unsigned long i;
-	struct fs_image_segment* segs = (struct fs_image_segment*)segments;
 
-	if (nsegs > IMAGE_MAX_SEGMENTS)
-		nsegs = IMAGE_MAX_SEGMENTS;
-	for (i = 0; i < nsegs; i++) {
-		if (segs[i].size > IMAGE_MAX_SIZE)
-			segs[i].size = IMAGE_MAX_SIZE;
-		segs[i].offset %= IMAGE_MAX_SIZE;
-		if (segs[i].offset > IMAGE_MAX_SIZE - segs[i].size)
-			segs[i].offset = IMAGE_MAX_SIZE - segs[i].size;
-		if (size < segs[i].offset + segs[i].offset)
-			size = segs[i].offset + segs[i].offset;
-	}
-	if (size > IMAGE_MAX_SIZE)
-		size = IMAGE_MAX_SIZE;
+	NONFAILING(size = fs_image_segment_check(size, nsegs, segments));
 	int memfd = syscall(sys_memfd_create, "syz_mount_image", 0);
 	if (memfd == -1) {
 		err = errno;
@@ -3509,7 +3599,10 @@ static long syz_mount_image(volatile long fsarg, volatile long dir, volatile uns
 		goto error_close_memfd;
 	}
 	for (i = 0; i < nsegs; i++) {
-		if (pwrite(memfd, segs[i].data, segs[i].size, segs[i].offset) < 0) {
+		struct fs_image_segment* segs = (struct fs_image_segment*)segments;
+		int res1 = 0;
+		NONFAILING(res1 = pwrite(memfd, segs[i].data, segs[i].size, segs[i].offset));
+		if (res1 < 0) {
 			debug("syz_mount_image: pwrite[%u] failed: %d\n", (int)i, errno);
 		}
 	}
@@ -6022,19 +6115,21 @@ static long syz_exit(volatile long status)
 static long syz_compare(volatile long want, volatile long want_len, volatile long got, volatile long got_len)
 {
 	if (want_len != got_len) {
-		debug("syz_compare: want_len=%lu got_len=%lu\n", want_len, got_len);
 		errno = EBADF;
-		return -1;
+		goto error;
 	}
 	if (memcmp((void*)want, (void*)got, want_len)) {
-		debug("syz_compare: data differs, want:\n");
-		debug_dump_data((char*)want, want_len);
-		debug("got:\n");
-		debug_dump_data((char*)got, got_len);
 		errno = EINVAL;
-		return -1;
+		goto error;
 	}
 	return 0;
+
+error:
+	debug("syz_compare: want (%lu):\n", want_len);
+	debug_dump_data((char*)want, want_len);
+	debug("got (%lu):\n", got_len);
+	debug_dump_data((char*)got, got_len);
+	return -1;
 }
 #endif
 

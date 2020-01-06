@@ -10,10 +10,12 @@ include <linux/sem.h>
 
 resource ipc[int32]: 0, -1
 
+type ipc_key_t proc[2039359027, 4, int32]
+
 # TODO: describe ipc syscall
 
 resource ipc_msq[ipc]
-msgget(key proc[2039379027, 4], flags flags[msgget_flags]) ipc_msq
+msgget(key ipc_key_t, flags flags[msgget_flags]) ipc_msq
 msgget$private(key const[IPC_PRIVATE], flags flags[msgget_flags]) ipc_msq
 msgsnd(msqid ipc_msq, msgp ptr[in, msgbuf], sz len[msgp], flags flags[msgsnd_flags])
 msgrcv(msqid ipc_msq, msgp ptr[out, msgbuf], sz len[msgp], typ flags[msgbuf_type], flags flags[msgrcv_flags])
@@ -23,9 +25,10 @@ msgctl$IPC_RMID(msqid ipc_msq, cmd const[IPC_RMID])
 msgctl$IPC_INFO(msqid ipc_msq, cmd const[IPC_INFO], buf buffer[out])
 msgctl$MSG_INFO(msqid ipc_msq, cmd const[MSG_INFO], buf buffer[out])
 msgctl$MSG_STAT(msqid ipc_msq, cmd const[MSG_STAT], buf buffer[out])
+msgctl$MSG_STAT_ANY(msqid ipc_msq, cmd const[MSG_STAT_ANY], buf buffer[out])
 
 resource ipc_sem[ipc]
-semget(key proc[2039359027, 4], nsems flags[sem_sem_id], flags flags[semget_flags]) ipc_sem
+semget(key ipc_key_t, nsems flags[sem_sem_id], flags flags[semget_flags]) ipc_sem
 semget$private(key const[IPC_PRIVATE], nsems flags[sem_sem_id], flags flags[semget_flags]) ipc_sem
 semop(semid ipc_sem, ops ptr[in, array[sembuf]], nops len[ops])
 semtimedop(semid ipc_sem, ops ptr[in, array[sembuf]], nops len[ops], timeout ptr[in, timespec])
@@ -35,6 +38,7 @@ semctl$IPC_RMID(semid ipc_sem, semnum const[0], cmd const[IPC_RMID])
 semctl$IPC_INFO(semid ipc_sem, semnum flags[sem_sem_id], cmd const[IPC_INFO], buf buffer[out])
 semctl$SEM_INFO(semid ipc_sem, semnum flags[sem_sem_id], cmd const[SEM_INFO], arg buffer[out])
 semctl$SEM_STAT(semid ipc_sem, semnum flags[sem_sem_id], cmd const[SEM_STAT], arg buffer[out])
+semctl$SEM_STAT_ANY(semid ipc_sem, semnum flags[sem_sem_id], cmd const[SEM_STAT_ANY], arg buffer[out])
 semctl$GETALL(semid ipc_sem, semnum const[0], cmd const[GETALL], arg buffer[out])
 semctl$GETNCNT(semid ipc_sem, semnum flags[sem_sem_id], cmd const[GETNCNT], arg buffer[out])
 semctl$GETPID(semid ipc_sem, semnum flags[sem_sem_id], cmd const[GETPID], arg buffer[out])
@@ -56,6 +60,7 @@ shmctl$IPC_RMID(shmid ipc_shm, cmd const[IPC_RMID])
 shmctl$IPC_INFO(shmid ipc_shm, cmd const[IPC_INFO], buf buffer[out])
 shmctl$SHM_INFO(shmid ipc_shm, cmd const[SHM_INFO], buf buffer[out])
 shmctl$SHM_STAT(shmid ipc_shm, cmd const[SHM_STAT], buf buffer[out])
+shmctl$SHM_STAT_ANY(shmid ipc_shm, cmd const[SHM_STAT_ANY], buf buffer[out])
 shmctl$SHM_LOCK(shmid ipc_shm, cmd const[SHM_LOCK])
 shmctl$SHM_UNLOCK(shmid ipc_shm, cmd const[SHM_UNLOCK])
 shmdt(addr shmaddr)
@@ -71,53 +76,55 @@ shmget_flags = IPC_CREAT, IPC_EXCL, SHM_HUGETLB, SHM_HUGE_2MB, SHM_HUGE_1GB, SHM
 shmat_flags = SHM_RND, SHM_RDONLY, SHM_REMAP
 
 ipc_perm {
-	key	int32
+# NEED: all these uid, gid, pid, mode seem to be 2 bytes on 386 (what about arm?)
+	key	ipc_key_t
 	uid	uid
 	gid	gid
 	cuid	uid
 	cgid	gid
 	mode	flags[open_mode, int32]
 	seq	int16
-	pad0	const[0, int16]
-	pad1	const[0, intptr]
-	pad2	const[0, intptr]
 }
 
 msqid_ds {
-	perm	ipc_perm
-	stime	intptr
-	rtime	intptr
-	ctime	intptr
-	cbytes	intptr
-	qnum	intptr
-	qbytes	intptr
-	lspid	pid
-	lrpid	pid
-	pad0	const[0, intptr]
-	pad1	const[0, intptr]
+	msg_perm	ipc_perm
+	msg_first	const[0, intptr]
+	msg_last	const[0, intptr]
+	msg_stime	intptr
+	msg_rtime	intptr
+	msg_ctime	intptr
+	msg_lcbytes	intptr
+	msg_lqbytes	intptr
+	msg_cbytes	int16
+	msg_qnum	int16
+	msg_qbytes	int16
+	msg_lspid	pid
+	msg_lrpid	pid
 }
 
 shmid_ds {
-	perm	ipc_perm
-	segsz	int32
-	atime	intptr
-	dtime	intptr
-	ctime	intptr
-	cpid	pid
-	lpid	pid
-	nattch	int16
-	unused0	const[0, int16]
-	unused1	const[0, intptr]
-	unused2	const[0, intptr]
+	shm_perm	ipc_perm
+	shm_segsz	int32
+	shm_atime	intptr
+	shm_dtime	intptr
+	shm_ctime	intptr
+	shm_cpid	pid
+	shm_lpid	pid
+	shm_nattch	int16
+	shm_unused	const[0, int16]
+	shm_unused2	const[0, intptr]
+	shm_unused3	const[0, intptr]
 }
 
 semid_ds {
-	perm	ipc_perm
-	otime	intptr
-	ctime	intptr
-	nsems	intptr
-	pad0	const[0, intptr]
-	pad1	const[0, intptr]
+	sem_perm		ipc_perm
+	sem_otime		intptr
+	sem_ctime		intptr
+	sem_base		const[0, intptr]
+	sem_pending		const[0, intptr]
+	sem_pending_last	const[0, intptr]
+	undo			const[0, intptr]
+	sem_nsems		int16
 }
 
 sembuf {

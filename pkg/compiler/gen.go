@@ -199,16 +199,13 @@ func (ctx *structGen) walkStruct(t *prog.StructType) {
 			varlen = true
 		}
 	}
-	comp.markBitfields(t.Fields)
 	packed, sizeAttr, alignAttr := comp.parseStructAttrs(structNode)
-	t.Fields = comp.addAlignment(t.Fields, varlen, packed, alignAttr)
 	t.AlignAttr = alignAttr
+	comp.layoutStruct(t, varlen, packed)
 	t.TypeSize = 0
 	if !varlen {
 		for _, f := range t.Fields {
-			if !f.BitfieldMiddle() {
-				t.TypeSize += f.Size()
-			}
+			t.TypeSize += f.Size()
 		}
 		if sizeAttr != sizeUnassigned {
 			if t.TypeSize > sizeAttr {
@@ -261,103 +258,151 @@ func (comp *compiler) genStructDesc(res *prog.StructDesc, n *ast.Struct, dir pro
 	}
 }
 
-func (comp *compiler) markBitfields(fields []prog.Type) {
-	var bfOffset uint64
-	for i, f := range fields {
-		if f.BitfieldLength() == 0 {
-			continue
+func (comp *compiler) layoutStruct(t *prog.StructType, varlen, packed bool) {
+	var newFields []prog.Type
+	var structAlign, byteOffset, bitOffset uint64
+	for i, f := range t.Fields {
+		fieldAlign := uint64(1)
+		if !packed {
+			fieldAlign = comp.typeAlign(f)
+			if structAlign < fieldAlign {
+				structAlign = fieldAlign
+			}
 		}
-		off, middle := bfOffset, true
-		bfOffset += f.BitfieldLength()
-		if i == len(fields)-1 || // Last bitfield in a group, if last field of the struct...
-			fields[i+1].BitfieldLength() == 0 || // or next field is not a bitfield...
-			f.Size() != fields[i+1].Size() || // or next field is of different size...
-			bfOffset+fields[i+1].BitfieldLength() > f.Size()*8 { // or next field does not fit into the current group.
-			middle, bfOffset = false, 0
+		fullBitOffset := byteOffset*8 + bitOffset
+		var fieldOffset uint64
+
+		if f.IsBitfield() {
+			unitAlign := f.UnitSize()
+			if packed {
+				unitAlign = 1
+			}
+			fieldOffset = rounddown(fullBitOffset/8, unitAlign)
+			unitBits := f.UnitSize() * 8
+			occupiedBits := fullBitOffset - fieldOffset*8
+			remainBits := unitBits - occupiedBits
+
+			if remainBits < f.BitfieldLength() {
+				fieldOffset = roundup(roundup(fullBitOffset, 8)/8, unitAlign)
+				fullBitOffset, bitOffset = 0, 0
+			} else if fieldOffset*8 >= fullBitOffset {
+				fullBitOffset, bitOffset = fieldOffset*8, 0
+			}
+			fieldBitOffset := (fullBitOffset - fieldOffset*8) % unitBits
+			setBitfieldOffset(f, fieldBitOffset)
+		} else {
+			fieldOffset = roundup(roundup(fullBitOffset, 8)/8, fieldAlign)
+			bitOffset = 0
 		}
-		setBitfieldOffset(f, off, middle)
+		if fieldOffset > byteOffset {
+			pad := fieldOffset - byteOffset
+			byteOffset += pad
+			if i != 0 && t.Fields[i-1].IsBitfield() {
+				setBitfieldTypeSize(t.Fields[i-1], pad)
+			} else {
+				newFields = append(newFields, genPad(pad))
+			}
+		}
+		if f.IsBitfield() {
+			if byteOffset > fieldOffset {
+				unitOffset := byteOffset - fieldOffset
+				setBitfieldUnitOffset(f, unitOffset)
+			}
+		}
+		newFields = append(newFields, f)
+		if f.IsBitfield() {
+			bitOffset += f.BitfieldLength()
+		} else if !f.Varlen() {
+			// Increase offset if the current field except when it's
+			// the last field in a struct and has variable length.
+			byteOffset += f.Size()
+		}
 	}
+	if bitOffset != 0 {
+		pad := roundup(bitOffset, 8) / 8
+		byteOffset += pad
+		i := len(t.Fields)
+		if i != 0 && t.Fields[i-1].IsBitfield() {
+			setBitfieldTypeSize(t.Fields[i-1], pad)
+		} else {
+			newFields = append(newFields, genPad(pad))
+		}
+	}
+
+	if t.AlignAttr != 0 {
+		structAlign = t.AlignAttr
+	}
+	if !varlen && structAlign != 0 && byteOffset%structAlign != 0 {
+		pad := structAlign - byteOffset%structAlign
+		newFields = append(newFields, genPad(pad))
+	}
+	t.Fields = newFields
 }
 
-func setBitfieldOffset(t0 prog.Type, offset uint64, middle bool) {
+func roundup(v, a uint64) uint64 {
+	return rounddown(v+a-1, a)
+}
+
+func rounddown(v, a uint64) uint64 {
+	if (a & (a - 1)) != 0 {
+		panic(fmt.Sprintf("rounddown(%v)", a))
+	}
+	return v & ^(a - 1)
+}
+
+func bitfieldFields(t0 prog.Type) (*uint64, *uint64, *uint64) {
 	switch t := t0.(type) {
 	case *prog.IntType:
-		t.BitfieldOff, t.BitfieldMdl = offset, middle
+		return &t.TypeSize, &t.BitfieldOff, &t.BitfieldUnitOff
 	case *prog.ConstType:
-		t.BitfieldOff, t.BitfieldMdl = offset, middle
+		return &t.TypeSize, &t.BitfieldOff, &t.BitfieldUnitOff
 	case *prog.LenType:
-		t.BitfieldOff, t.BitfieldMdl = offset, middle
+		return &t.TypeSize, &t.BitfieldOff, &t.BitfieldUnitOff
 	case *prog.FlagsType:
-		t.BitfieldOff, t.BitfieldMdl = offset, middle
+		return &t.TypeSize, &t.BitfieldOff, &t.BitfieldUnitOff
 	case *prog.ProcType:
-		t.BitfieldOff, t.BitfieldMdl = offset, middle
+		return &t.TypeSize, &t.BitfieldOff, &t.BitfieldUnitOff
 	default:
 		panic(fmt.Sprintf("type %#v can't be a bitfield", t))
 	}
 }
 
-func (comp *compiler) addAlignment(fields []prog.Type, varlen, packed bool, alignAttr uint64) []prog.Type {
-	var newFields []prog.Type
-	if packed {
-		// If a struct is packed, statically sized and has explicitly set alignment,
-		// add a padding at the end.
-		newFields = fields
-		if !varlen && alignAttr != 0 {
-			size := uint64(0)
-			for _, f := range fields {
-				if !f.BitfieldMiddle() {
-					size += f.Size()
-				}
-			}
-			if tail := size % alignAttr; tail != 0 {
-				newFields = append(newFields, genPad(alignAttr-tail))
-			}
-		}
-		return newFields
-	}
-	var align, off uint64
-	for i, f := range fields {
-		if i == 0 || !fields[i-1].BitfieldMiddle() {
-			a := comp.typeAlign(f)
-			if align < a {
-				align = a
-			}
-			// Append padding if the last field is not a bitfield or it's the last bitfield in a set.
-			if off%a != 0 {
-				pad := a - off%a
-				off += pad
-				newFields = append(newFields, genPad(pad))
-			}
-		}
-		newFields = append(newFields, f)
-		if !f.BitfieldMiddle() && (i != len(fields)-1 || !f.Varlen()) {
-			// Increase offset if the current field is not a bitfield
-			// or it's the last bitfield in a set, except when it's
-			// the last field in a struct and has variable length.
-			off += f.Size()
-		}
-	}
-	if alignAttr != 0 {
-		align = alignAttr
-	}
-	if align != 0 && off%align != 0 && !varlen {
-		pad := align - off%align
-		off += pad
-		newFields = append(newFields, genPad(pad))
-	}
-	return newFields
+func setBitfieldTypeSize(t prog.Type, v uint64) {
+	p, _, _ := bitfieldFields(t)
+	*p = v
+}
+
+func setBitfieldOffset(t prog.Type, v uint64) {
+	_, p, _ := bitfieldFields(t)
+	*p = v
+}
+
+func setBitfieldUnitOffset(t prog.Type, v uint64) {
+	_, _, p := bitfieldFields(t)
+	*p = v
 }
 
 func (comp *compiler) typeAlign(t0 prog.Type) uint64 {
-	switch t0.(type) {
-	case *prog.IntType, *prog.ConstType, *prog.LenType, *prog.FlagsType, *prog.ProcType,
-		*prog.CsumType, *prog.PtrType, *prog.VmaType, *prog.ResourceType:
-		return t0.Size()
-	case *prog.BufferType:
+	switch t0.Format() {
+	case prog.FormatNative, prog.FormatBigEndian:
+	case prog.FormatStrDec, prog.FormatStrHex, prog.FormatStrOct:
+		return 1
+	default:
+		panic("unknown binary format")
+	}
+	if prog.IsPad(t0) {
 		return 1
 	}
-
 	switch t := t0.(type) {
+	case *prog.ConstType, *prog.IntType, *prog.LenType, *prog.FlagsType, *prog.ProcType,
+		*prog.CsumType, *prog.PtrType, *prog.VmaType, *prog.ResourceType:
+		align := t0.UnitSize()
+		if align == 8 && comp.target.Int64Alignment != 0 {
+			align = comp.target.Int64Alignment
+		}
+		return align
+	case *prog.BufferType:
+		return 1
 	case *prog.ArrayType:
 		return comp.typeAlign(t.Type)
 	case *prog.StructType:
@@ -431,10 +476,16 @@ func genIntCommon(com prog.TypeCommon, bitLen uint64, bigEndian bool) prog.IntTy
 	if bigEndian {
 		bf = prog.FormatBigEndian
 	}
+	bfUnit := uint64(0)
+	if bitLen != 0 {
+		bfUnit = com.TypeSize
+		com.TypeSize = 0
+	}
 	return prog.IntTypeCommon{
-		TypeCommon:  com,
-		ArgFormat:   bf,
-		BitfieldLen: bitLen,
+		TypeCommon:   com,
+		ArgFormat:    bf,
+		BitfieldLen:  bitLen,
+		BitfieldUnit: bfUnit,
 	}
 }
 

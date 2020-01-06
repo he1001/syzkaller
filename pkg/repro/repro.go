@@ -18,6 +18,7 @@ import (
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/pkg/report"
 	"github.com/google/syzkaller/prog"
+	"github.com/google/syzkaller/sys/targets"
 	"github.com/google/syzkaller/vm"
 )
 
@@ -57,6 +58,34 @@ type instance struct {
 	index       int
 	execprogBin string
 	executorBin string
+}
+
+func initInstance(cfg *mgrconfig.Config, vmPool *vm.Pool, vmIndex int) (*instance, error) {
+	vmInst, err := vmPool.Create(vmIndex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VM: %v", err)
+
+	}
+	execprogBin, err := vmInst.Copy(cfg.SyzExecprogBin)
+	if err != nil {
+		vmInst.Close()
+		return nil, fmt.Errorf("failed to copy to VM: %v", err)
+	}
+	executorCmd := targets.Get(cfg.TargetOS, cfg.TargetArch).SyzExecutorCmd
+	if executorCmd == "" {
+		executorCmd, err = vmInst.Copy(cfg.SyzExecutorBin)
+		if err != nil {
+			vmInst.Close()
+			return nil, fmt.Errorf("failed to copy to VM: %v", err)
+		}
+	}
+	return &instance{
+		Instance:    vmInst,
+		index:       vmIndex,
+		execprogBin: execprogBin,
+		executorBin: executorCmd,
+	}, nil
+
 }
 
 func Run(crashLog []byte, cfg *mgrconfig.Config, reporter report.Reporter, vmPool *vm.Pool,
@@ -124,32 +153,12 @@ func Run(crashLog []byte, cfg *mgrconfig.Config, reporter report.Reporter, vmPoo
 						continue
 					default:
 					}
-					vmInst, err := vmPool.Create(vmIndex)
+					var err error
+					inst, err = initInstance(cfg, vmPool, vmIndex)
 					if err != nil {
-						ctx.reproLog(0, "failed to create VM: %v", err)
+						ctx.reproLog(0, "failed to init instance: %v", err)
 						time.Sleep(10 * time.Second)
 						continue
-
-					}
-					execprogBin, err := vmInst.Copy(cfg.SyzExecprogBin)
-					if err != nil {
-						ctx.reproLog(0, "failed to copy to VM: %v", err)
-						vmInst.Close()
-						time.Sleep(10 * time.Second)
-						continue
-					}
-					executorBin, err := vmInst.Copy(cfg.SyzExecutorBin)
-					if err != nil {
-						ctx.reproLog(0, "failed to copy to VM: %v", err)
-						vmInst.Close()
-						time.Sleep(10 * time.Second)
-						continue
-					}
-					inst = &instance{
-						Instance:    vmInst,
-						index:       vmIndex,
-						execprogBin: execprogBin,
-						executorBin: executorBin,
 					}
 					break
 				}

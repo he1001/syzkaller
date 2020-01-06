@@ -3,15 +3,15 @@ External USB fuzzing for Linux kernel
 
 Syzkaller supports fuzzing the Linux kernel USB subsystem externally
 (as it would be done by plugging in a physical USB device with e.g. [Facedancer](https://github.com/usb-tools/Facedancer)).
-This allowed to find over [100 bugs](/docs/linux/found_bugs_usb.md) in the Linux kernel USB stack so far.
+This allowed to find over [200 bugs](/docs/linux/found_bugs_usb.md) in the Linux kernel USB stack so far.
 This is still in development and things might change.
 
-USB fuzzing consists of 3 parts:
+USB fuzzing support consists of 3 parts:
 
 1. Syzkaller changes that are now upstream.
 2. Kernel interface for USB device emulation, which can be found [here](https://github.com/google/kasan/commits/usb-fuzzer) and is now being upstreamed.
 3. KCOV changes that allow to collect coverage from background threads and interrupts
-(the former can be found [here](https://github.com/google/kasan/commits/usb-fuzzer) and is now being upstreamed, the latter is still in development).
+(the former is now upstream, the latter can be found [here](https://github.com/google/kasan/commits/usb-fuzzer) and is now being upstreamed).
 
 More details can be found:
 
@@ -21,22 +21,26 @@ More details can be found:
 
 A few major things that need to be done:
 
-1. Upstream KCOV changes that allow to collect coverage from background threads.
+1. Upstream KCOV changes that allow to collect coverage from interrupts.
 2. Upstream the kernel interface for USB device emulation.
 3. Implement a proper way for extracting relevant USB ids from the kernel ([discussion](https://www.spinics.net/lists/linux-usb/msg187915.html) is ongoing).
 4. Add descriptions for all relevant USB classes and drivers.
-5. Collect coverage from interrupts (this is required to enable better fuzzing of USB drivers after enumeration completes).
 
 The work on points 1 and 2 has started:
 
 Kernel patches in mainline:
 
+- [kcov: collect coverage from usb and vhost](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=eec028c9386ed1a692aa01a85b55952202b41619)
+- [usb, kcov: collect coverage from hub_event](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=95d23dc27bde0ab4b25f7ade5e2fddc08dd97d9b)
 - [USB: dummy-hcd: use usb_urb_dir_in instead of usb_pipein](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=6dabeb891c001c592645df2f477fed9f5d959987)
 - [USB: dummy-hcd: increase max number of devices to 32](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=8442b02bf3c6770e0d7e7ea17be36c30e95987b6)
+- (All other patches that touch drivers/usb/gadget/udc/dummy_hcd.c are recommended.)
 
 Kernel patches in review:
-- [[v3] kcov: collect coverage from usb and vhost](https://lore.kernel.org/patchwork/cover/1146106/)
-- [[v2] usb: gadget: add raw-gadget interface](https://patchwork.kernel.org/patch/11246371/)
+
+- [[v2] kcov: fix struct layout for kcov_remote_arg](https://patchwork.kernel.org/patch/11276137/)
+- [[v4] usb: gadget: add raw-gadget interface](https://patchwork.kernel.org/cover/11301723/)
+- [[RFC] kcov: collect coverage from usbhid interrupts](https://patchwork.kernel.org/cover/11288771/)
 
 Some ideas for things that can be done:
 

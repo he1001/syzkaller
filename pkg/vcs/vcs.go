@@ -167,8 +167,13 @@ func CheckCommitHash(hash string) bool {
 }
 
 func runSandboxed(dir, command string, args ...string) ([]byte, error) {
+	return runSandboxedEnv(dir, command, nil, args...)
+}
+
+func runSandboxedEnv(dir, command string, env []string, args ...string) ([]byte, error) {
 	cmd := osutil.Command(command, args...)
 	cmd.Dir = dir
+	cmd.Env = env
 	if err := osutil.Sandbox(cmd, true, false); err != nil {
 		return nil, err
 	}
@@ -181,7 +186,8 @@ var (
 	gitBranchRe  = regexp.MustCompile("^[a-zA-Z0-9-_/.]{2,200}$")
 	gitHashRe    = regexp.MustCompile("^[a-f0-9]{8,40}$")
 	releaseTagRe = regexp.MustCompile(`^v([0-9]+).([0-9]+)(?:\.([0-9]+))?$`)
-	ccRes        = []*regexp.Regexp{
+	// CC: is intentionally not on this list, see #1441.
+	ccRes = []*regexp.Regexp{
 		regexp.MustCompile(`^Reviewed\-.*: (.*)$`),
 		regexp.MustCompile(`^[A-Za-z-]+\-and\-[Rr]eviewed\-.*: (.*)$`),
 		regexp.MustCompile(`^Acked\-.*: (.*)$`),
@@ -189,7 +195,6 @@ var (
 		regexp.MustCompile(`^Tested\-.*: (.*)$`),
 		regexp.MustCompile(`^[A-Za-z-]+\-and\-[Tt]ested\-.*: (.*)$`),
 		regexp.MustCompile(`^Signed-off-by: (.*)$`),
-		regexp.MustCompile(`^C[Cc]: (.*)$`),
 	}
 )
 
